@@ -1,0 +1,426 @@
+####################### Loading packages
+library(ggplot2)
+library(vegan)
+library(reshape2)
+library(RColorBrewer)
+library(gplots)
+library(pheatmap)
+
+####################### Loading tables
+otu_ids #Taxonomy
+otu_table #Counts
+metadata #Metadata
+
+####################### Selecting most abundant taxa
+otutab <- otu_table[,-1]
+rownames(otutab) <- otu_table$X.OTU.ID
+otu_perc <- apply(otutab, 2, function(x)((x/sum(x))*100))
+otu_perc_t <- t(otu_perc)
+out <- NULL
+for(i in 1:dim(otu_perc)[2]){out <- c(out, as.character(rownames(otu_perc)[order(otu_perc[,i], decreasing=T)[1:6]]))}
+otu_perc <- otu_perc[-which(apply(otu_perc, 1, sum) == 0), ]
+
+####################### Parsing reference
+reference <- as.character(otu_ids$V2)
+reference <- gsub("\\(.*?\\)", "", reference)
+
+taxaOTUs <- NULL
+for(i in 1:length(reference)){
+  annotation <- NULL
+  test <- strsplit(reference[i], split = ",")[[1]]
+  if(length(grep("d:", test)) == 1){annotation <- c(annotation, test[grep("d:", test)])} 
+  if(length(grep("d:", test)) == 0){annotation <- c(annotation, "Others")}
+  if(length(grep("p:", test)) == 1){annotation <- c(annotation, test[grep("p:", test)])} 
+  if(length(grep("p:", test)) == 0){annotation <- c(annotation, "Others")}
+  if(length(grep("c:", test)) == 1){annotation <- c(annotation, test[grep("c:", test)])} 
+  if(length(grep("c:", test)) == 0){annotation <- c(annotation, "Others")}
+  if(length(grep("o:", test)) == 1){annotation <- c(annotation, test[grep("o:", test)])} 
+  if(length(grep("o:", test)) == 0){annotation <- c(annotation, "Others")}
+  if(length(grep("f:", test)) == 1){annotation <- c(annotation, test[grep("f:", test)])} 
+  if(length(grep("f:", test)) == 0){annotation <- c(annotation, "Others")}
+  if(length(grep("g:", test)) == 1){annotation <- c(annotation, test[grep("g:", test)])} 
+  if(length(grep("g:", test)) == 0){annotation <- c(annotation, "Others")}
+  if(length(grep("s:", test)) == 1){annotation <- c(annotation, test[grep("s:", test)])} 
+  if(length(grep("s:", test)) == 0){annotation <- c(annotation, "Others")}
+  if(length(annotation) != 7){print(i)}
+  taxaOTUs <- rbind(taxaOTUs, annotation)
+}
+rownames(taxaOTUs) <- otu_ids[,1]
+df_taxaOTUs <- data.frame(otu=rownames(taxaOTUs), taxaOTUs)
+colnames(df_taxaOTUs) <- c("otu", "domain", "phylum", "class", "order", "family", "genus", "species")
+
+
+####################### Merging dataframes
+df_OTU_Percentage <- data.frame(otu=rownames(otu_perc), otu_perc)
+df_Taxa_Perc <- merge(df_taxaOTUs, df_OTU_Percentage, by.x="otu", by.y="otu", all = F)
+
+###################### Barplot by taxa
+
+get_taxa <- function(df_Taxa_Perc, metadata, taxa){
+  if(taxa=="domain"){df_taxa <- df_Taxa_Perc[,-c(1,3,4,5,6,7,8)]}
+  if(taxa=="phylum"){df_taxa <- df_Taxa_Perc[,-c(1,2,4,5,6,7,8)]}
+  if(taxa=="class"){df_taxa <- df_Taxa_Perc[,-c(1,2,3,5,6,7,8)]}
+  if(taxa=="order"){df_taxa <- df_Taxa_Perc[,-c(1,2,3,4,6,7,8)]}
+  if(taxa=="family"){df_taxa <- df_Taxa_Perc[,-c(1,2,3,4,5,7,8)]}
+  if(taxa=="genus"){df_taxa <- df_Taxa_Perc[,-c(1,2,3,4,5,6,8)]}
+  if(taxa=="species"){df_taxa <- df_Taxa_Perc[,-c(1,2,3,4,5,6,7)]}
+  df_aggreg <- aggregate(. ~ get(taxa), df_taxa, sum)
+  df_melt <- melt(df_aggreg)
+  df_melt_metadata <- merge(df_melt, metadata, by.x = "variable", by.y = "Samples" )
+  colnames(df_melt_metadata) <- c("Samples", "Taxa", "Percentage", "Strain", "Diet", "Animal", "Replicate", "Group")
+  return(df_melt_metadata)
+}
+
+###barplot
+
+taxa <- "family"
+df <- get_taxa(df_Taxa_Perc, metadata, taxa)
+
+
+df_aggreg <- aggregate(. ~ Taxa + Strain + Diet, df, mean)
+df1perc_aggreg <- df_aggreg[df_aggreg$Percentage > 1, ]
+colourCount = length(unique(df1perc_aggreg$Taxa))
+getPalette = colorRampPalette(brewer.pal(12, "Paired"))
+#getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+
+ggplot(data = df1perc_aggreg, aes(x = Strain, y = Percentage, fill = Taxa)) + 
+  geom_bar(stat = 'identity', position = 'stack') + facet_grid(~ Diet, scales="free") +
+  scale_fill_manual(values=getPalette(colourCount)) +
+  ylab("Relative abundance (%)") + xlab("") +
+  theme_bw() +  guides(fill=guide_legend(ncol=1))  +
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5, size = 10),
+        axis.text = element_text(size = 10),
+        axis.title=element_text(size=14),
+        legend.title=element_blank(), 
+        legend.text=element_text(size=10),
+        legend.key.width = unit(0.4,"cm"), legend.key.height = unit(0.4,"cm"),
+        strip.text.x = element_text(size=10),
+        strip.background = element_rect(fill = "white"))
+
+
+ggplot(data = df1perc_aggreg, aes(x = Diet, y = Percentage, fill = Taxa)) + 
+  geom_bar(stat = 'identity', position = 'stack') + facet_grid(~ Strain, scales="free") +
+  scale_fill_manual(values=getPalette(colourCount)) +
+  ylab("Relative abundance (%)") + xlab("") +
+  theme_bw() +  guides(fill=guide_legend(ncol=1))  +
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5, size = 10),
+        axis.text = element_text(size = 10),
+        axis.title=element_text(size=14),
+        legend.title=element_blank(), 
+        legend.text=element_text(size=10),
+        legend.key.width = unit(0.4,"cm"), legend.key.height = unit(0.4,"cm"),
+        strip.text.x = element_text(size=10),
+        strip.background = element_rect(fill = "white"))
+
+
+df1perc_aggregCMAH <- df1perc_aggreg[which(df1perc_aggreg$Strain == "Cmah-"),]
+
+dfebn <- df1perc_aggregCMAH[which(df1perc_aggregCMAH$Diet == "EBN"),]
+dfpsm <- df1perc_aggregCMAH[which(df1perc_aggregCMAH$Diet == "PSM"),]
+dfsoy <- df1perc_aggregCMAH[which(df1perc_aggregCMAH$Diet == "SOY"),]
+
+dfebn$Percentage[which(dfebn$Taxa == "Others")] = dfebn$Percentage[which(dfebn$Taxa == "Others")] + 
+                                                 (100 - sum(dfebn$Percentage))
+
+dfpsm$Percentage[which(dfpsm$Taxa == "Others")] = dfpsm$Percentage[which(dfpsm$Taxa == "Others")] + 
+                                                 (100 - sum(dfpsm$Percentage))
+
+dfsoy$Percentage[which(dfsoy$Taxa == "Others")] = dfsoy$Percentage[which(dfsoy$Taxa == "Others")] + 
+                                                 (100 - sum(dfsoy$Percentage))
+
+dfOthers <- rbind(dfebn, dfpsm, dfsoy)
+
+barplotFamily <- ggplot(data = dfOthers, aes(x = Diet, y = Percentage, fill = Taxa)) + 
+  geom_bar(stat = 'identity', position = 'stack') + #facet_grid(~ Strain, scales="free") +
+  scale_fill_manual(values=getPalette(colourCount)) +
+  ylab("Relative abundance (%)") + xlab("") +
+  theme_bw() +  guides(fill=guide_legend(ncol=1))  +
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5, size = 14),
+        axis.text = element_text(size = 14),
+        axis.title=element_text(size=18),
+        legend.title=element_blank(), 
+        legend.text=element_text(size=10),
+        legend.key.width = unit(0.5,"cm"), legend.key.height = unit(0.5,"cm"),
+        strip.text.x = element_text(size=14),
+        strip.background = element_rect(fill = "white"))
+
+######################################################################
+taxa <- "genus"
+df <- get_taxa(df_Taxa_Perc, metadata, taxa)
+df1perc <- df[df$Percentage >= 1, ]
+
+taxaStrainDiet_mean <- aggregate(. ~ Taxa + Strain + Diet + Group, df1perc, mean)
+taxaStrainDiet_mean$Taxa <- droplevels(taxaStrainDiet_mean$Taxa)
+taxaStrainDiet_mean_cast <- acast(taxaStrainDiet_mean, Taxa~Group, value.var="Percentage")
+taxaStrainDiet_mean_cast[is.na(taxaStrainDiet_mean_cast)] <- 0
+
+distfunc <- function(x) daisy(x,metric="euclidean")
+hclustfunc <- function(x) hclust(x, method="complete")
+hdist <- distfunc(taxaStrainDiet_mean_cast)
+htest <- hclustfunc(hdist)
+
+taxaStrainDiet_mean$Taxa <- factor(taxaStrainDiet_mean$Taxa, 
+                                   levels = rownames(taxaStrainDiet_mean_cast)[htest$order], 
+                                   ordered = TRUE)
+
+pHeat <- ggplot(taxaStrainDiet_mean, aes(Group, Taxa)) +
+  geom_tile(aes(fill = sqrt(Percentage)), color = "white") +
+  scale_fill_gradient(low = "gray90", high = "dodgerblue4") +
+  ylab("Taxa ") +
+  xlab("Model x Diet") +
+  theme_classic() +
+  theme(legend.title = element_text(size = 8, face="bold"),
+        legend.text = element_text(size = 10),
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, size=1),
+        axis.title=element_text(size=10,face="bold"),
+        plot.title = element_text(size=10),
+        axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill = "Mean relative \nabundance across \ngroups (sqrt %)")
+
+taxaStrainDiet_meanCMAH <- taxaStrainDiet_mean[taxaStrainDiet_mean$Strain == "Cmah-", ]
+
+pHeatCMAH <- ggplot(taxaStrainDiet_meanCMAH, aes(Group, Taxa)) +
+  geom_tile(aes(fill = sqrt(Percentage)), color = "white") + 
+  #facet_grid(~ Strain, scales="free") +
+  scale_fill_gradient(low = "gray90", high = "dodgerblue4") +
+  ylab("Taxa ") +
+  xlab("Model x Diet") +
+  theme_classic() +
+  theme(legend.title = element_text(size = 8, face="bold"),
+        legend.text = element_text(size = 10),
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, size=1),
+        axis.title=element_text(size=10,face="bold"),
+        plot.title = element_text(size=10),
+        axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill = "Mean relative \nabundance across \ngroups (sqrt %)")
+
+##### Cluster all samples
+
+taxa <- "genus"
+df <- get_taxa(df_Taxa_Perc, metadata, taxa)
+df1perc <- df[df$Percentage >= 1, ]
+df1perc$logRelab <- log2(df1perc$Percentage)
+
+df1perc_cast <- acast(df1perc, Taxa~Samples, value.var="logRelab")
+df1perc_cast[is.na(df1perc_cast)] <- 0
+
+my_palette <- colorRampPalette(c("white", "dodgerblue4"))(n = 299)
+col_breaks = c(seq(0,2.5,length=100),  
+               seq(2.6,5.2,length=200))   
+
+samplestypes <- colnames(df1perc_cast)
+df1perc_castCMAH <- df1perc_cast[,grep("cmha", samplestypes)]
+colCols <- rep("black", dim(df1perc_castCMAH)[2])
+
+colCols[grep("psm", colnames(df1perc_castCMAH))] <- "#E41A1C"
+colCols[grep("ebn", colnames(df1perc_castCMAH))] <- "#377EB8"
+colCols[grep("soy", colnames(df1perc_castCMAH))] <- "#4DAF4A"
+
+
+heatmap.2(df1perc_castCMAH,
+          ColSideColors=colCols, 
+          #cellnote = mat_data,  # same data set for cell labels
+          notecol="black",      # change font color of cell labels to black
+          density.info="none",  # turns off density plot inside color legend
+          trace="none",         # turns off trace lines inside the heat map
+          margins =c(12,9),     # widens margins around plot
+          col=my_palette,       # use on color palette defined earlier
+          breaks=col_breaks) 
+
+
+####################### Beta diversity
+
+tab <- data.frame(Samples = rownames(t(otu_perc)), t(otu_perc))
+tabmeta <- merge(metadata, tab, by = "Samples", all = F)
+d <- vegdist(tabmeta[,-c(1:dim(metadata)[2])], method="bray")
+transf2 <- cmdscale(d, k=3, eig = TRUE)
+varexp <- round(((transf2$eig/sum(transf2$eig))[1:3]*100), digits = 2)
+clustid <- tabmeta$Group  #per group
+d.ano <- anosim(d, clustid)
+
+### cmha- only
+tabmeta_cmah <- tabmeta[tabmeta$Strain == "Cmah-",]
+tabmeta_cmah <- tabmeta_cmah[, -(which(apply(tabmeta_cmah[,-c(1:dim(metadata)[2])], 2, sum) == 0) + dim(metadata)[2])]
+
+d_cmah <- vegdist(tabmeta_cmah[,-c(1:dim(metadata)[2])], method="bray")
+transf2_cmah <- cmdscale(d_cmah, k=3, eig = TRUE)
+varexp_cmah <- round(((transf2_cmah$eig/sum(transf2_cmah$eig))[1:3]*100), digits = 2)
+clustid_cmah <- tabmeta_cmah$Group  #per group
+d.ano_cmah <- anosim(d_cmah, clustid_cmah)
+
+####### PCoA plot
+colourCount = length(unique(tabmeta$Samples))
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+my_palette <- c("#377EB8","#377EB8", "#E41A1C", "#E41A1C", "#4DAF4A", "#4DAF4A")
+transf3 <- as.data.frame(transf2$points[,c(1,2)])
+colnames(transf3) <- c("PC1", "PC2")
+
+p <- ggplot(transf3, aes(PC1, PC2, color=factor(clustid), shape = tabmeta$Strain))
+  p <- p +
+  geom_point(size = 3) + 
+  scale_color_manual(values = my_palette) +
+  geom_hline(yintercept=0) +
+  geom_vline(xintercept=0) +
+  labs(x =paste0("PC1 (", varexp[1], "%)"), 
+       y =paste0("PC2 (", varexp[2], "%)")) +
+  geom_text(x=0.25, y=0.45, size = 3, col="gray70",
+            label=paste0("pvalue = ", d.ano$signif, "\n", "R = ", round(d.ano$statistic, digits = 3))) +
+  theme_classic() +
+    theme(axis.text.x = element_text(angle = 0, hjust = 0.5, size = 10),
+          axis.text.y = element_text(size = 10),
+          axis.text = element_text(size = 10),
+          axis.title=element_text(size=10),
+          legend.title=element_blank(), 
+          #legend.position="none",
+          panel.background = element_blank(),
+          panel.border = element_rect(colour = "black", fill=NA, size=1))
+
+####### PCoA plot CMAH-
+
+colourCount = length(unique(tabmeta_cmah$Samples))
+getPalette = colorRampPalette(brewer.pal(9, "Set1"))
+my_palette <- c("#377EB8","#E41A1C", "#4DAF4A")
+transf3_cmah <- as.data.frame(transf2_cmah$points[,c(1,2)])
+colnames(transf3_cmah) <- c("PC1", "PC2")
+
+p <- ggplot(transf3_cmah, aes(PC1, PC2, color=factor(clustid_cmah)))
+p <- p +
+  geom_point(size = 3) + 
+  scale_color_manual(values = my_palette) +
+  geom_hline(yintercept=0) +
+  geom_vline(xintercept=0) +
+  labs(x =paste0("PC1 (", varexp_cmah[1], "%)"), 
+       y =paste0("PC2 (", varexp_cmah[2], "%)")) +
+  geom_text(x=0.25, y=0.45, size = 3, col="gray70",
+            label=paste0("pvalue = ", d.ano_cmah$signif, "\n", "R = ", round(d.ano_cmah$statistic, digits = 3))) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5, size = 10),
+        axis.text.y = element_text(size = 10),
+        axis.text = element_text(size = 10),
+        axis.title=element_text(size=10),
+        legend.title=element_blank(), 
+        #legend.position="none",
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, size=1))
+
+####################### Beta diversity
+######## WT and CMAH-
+dis <- vegdist(tabmeta[,-c(1:dim(metadata)[2])], method = "bray")
+groups <- tabmeta$Group
+bdisp <- betadisper(dis, groups)
+plot(bdisp)
+pcoa <- cmdscale(dis)
+#efit <- envfit(pcoa, tabmeta[,-c(1:dim(metadata)[2])], permutations = 1000)
+#save(efit, file = "efit_envfitfunction_16S.rda")
+load(file = "efit_envfitfunction_16S.rda")
+
+efit_df<-as.data.frame(efit$vectors$arrows*sqrt(efit$vectors$r))
+pvalsVec <- which(efit$vectors$pvals < 0.001)
+r2sVec <- which(efit$vectors$r > 0.7)
+efit_signif <- efit_df[rownames(efit_df) %in% intersect(names(pvalsVec), names(r2sVec)),]
+colnames(efit_signif) <- c("v1", "v2")
+efit_signif$otu <- rownames(efit_signif)
+
+efit_signif_taxa <- merge(efit_signif, df_taxaOTUs, by = "otu", all = F)
+#write.table(efit_signif_taxa, "../../figures_tables/efit_signif_taxa.txt", row.names = F, quote = F, sep = "\t")
+
+
+######## CMAH-
+dis_cmah <- vegdist(tabmeta_cmah[,-c(1:dim(metadata)[2])], method = "bray")
+groups_cmah <- tabmeta_cmah$Group
+bdisp_cmah <- betadisper(dis_cmah, groups_cmah)
+plot(bdisp_cmah)
+pcoa_cmah <- cmdscale(dis_cmah)
+#efit_cmah <- envfit(pcoa_cmah, tabmeta_cmah[,-c(1:dim(metadata)[2])], permutations = 1000)
+#save(efit_cmah, file = "efit_cmah_envfitfunction_16S.rda")
+load(file = "efit_cmah_envfitfunction_16S.rda")
+
+efit_df_cmah <- as.data.frame(efit_cmah$vectors$arrows*sqrt(efit_cmah$vectors$r))
+pvalsVec_cmah <- which(efit_cmah$vectors$pvals < 0.001)
+r2sVec_cmah <- which(efit_cmah$vectors$r > 0.7)
+efit_signif_cmah <- efit_df_cmah[rownames(efit_df_cmah) %in% intersect(names(pvalsVec_cmah), names(r2sVec_cmah)),]
+colnames(efit_signif_cmah) <- c("v1", "v2")
+efit_signif_cmah$otu <- rownames(efit_signif_cmah)
+
+efit_signif_cmah_taxa <- merge(efit_signif_cmah, df_taxaOTUs, by = "otu", all = F)
+
+######## PLOTS WT and CMAH-
+
+my_palette <- c("#377EB8","#377EB8", "#E41A1C", "#E41A1C", "#4DAF4A", "#4DAF4A")
+
+ggplot(transf3) +
+  geom_point(mapping = aes(PC1, PC2, color=factor(clustid), shape = tabmeta$Strain, size = 5)) +
+  scale_color_manual(values = my_palette) +
+  geom_hline(yintercept=0) +
+  geom_vline(xintercept=0) +
+  labs(x =paste0("PC1 (", varexp[1], "%)"), 
+       y =paste0("PC2 (", varexp[2], "%)")) +
+  theme_classic() +
+  theme(legend.title=element_blank(), 
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, size=1),
+        plot.title = element_text(hjust = 0.5)) +
+  geom_segment(data = efit_signif_taxa,
+               aes(x = 0, xend = v1, y = 0, yend = v2),
+               arrow = arrow(length = unit(0.25, "cm")), colour = "grey")+
+  geom_text(data=efit_signif_taxa,aes(x=v1,y=v2,label=order, size=5))
+
+
+######## PLOTS CMAH-
+
+my_palette <- c("#377EB8", "#E41A1C", "#4DAF4A")
+
+ggplot(transf3_cmah) +
+  geom_point(mapping = aes(PC1, PC2, color=factor(clustid_cmah))) +
+  scale_color_manual(values = my_palette) +
+  geom_hline(yintercept=0) +
+  geom_vline(xintercept=0) +
+  labs(x =paste0("PC1 (", varexp[1], "%)"), 
+       y =paste0("PC2 (", varexp[2], "%)")) +
+  theme_classic() +
+  theme(legend.title=element_blank(), 
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, size=1),
+        plot.title = element_text(hjust = 0.5)) +
+  geom_segment(data = efit_signif_cmah_taxa,
+               aes(x = 0, xend = v1, y = 0, yend = v2),
+               arrow = arrow(length = unit(0.25, "cm")), colour = "grey")+
+  geom_text(data=efit_signif_cmah_taxa,aes(x=v1,y=v2,label=order, size=5))
+
+
+
+####################### Alpha diversity
+
+Shannon <- diversity(tabmeta[,-c(1:dim(metadata)[2])])
+df_shannon <- data.frame(tabmeta[,c(1:dim(metadata)[2])], Shannon = Shannon)
+
+palpha1 <- ggplot(df_shannon, aes(x=Group, y=Shannon, fill=Group)) + 
+  geom_boxplot(width=0.65) + facet_grid(~ Strain, scales="free") +
+  scale_fill_manual(values=c("#377EB8","#377EB8", "#E41A1C", "#E41A1C", "#4DAF4A", "#4DAF4A")) +
+  xlab("") + ylab("Shannon Diversity Index") +
+  theme_classic() +
+  theme(axis.text.x = element_blank(),
+        legend.title=element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, size=1))
+
+palpha2 <- ggplot(df_shannon, aes(x=Group, y=Shannon, fill=Group)) + 
+  geom_boxplot(width=0.65) + facet_grid(~ Diet, scales="free") +
+  scale_fill_manual(values=c("#377EB8","#377EB8", "#E41A1C", "#E41A1C", "#4DAF4A", "#4DAF4A")) +
+  xlab("") + ylab("Shannon Diversity Index") +
+  theme_classic() +
+  theme(axis.text.x = element_blank(),
+        legend.title=element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, size=1))
+
+clustidF <- factor(tabmeta$Group)
+pairwise.wilcox.test(df_shannon$Shannon, clustidF, p.adjust.method = 'none')
+
+
